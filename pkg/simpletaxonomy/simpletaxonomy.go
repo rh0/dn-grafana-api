@@ -42,7 +42,7 @@ func ParseFile(filename string) (SimplifiedTaxonomy, error) {
 }
 
 // Lookup L1 Taxonomy name from slug
-func GetL1NameFromSlug (slug string, st SimplifiedTaxonomy) string {
+func (st *SimplifiedTaxonomy) GetL1NameFromSlug (slug string) string {
     for _, tax := range st.Taxonomies {
         if strings.Compare(strings.TrimSpace(slug), tax.Slug) == 0 {
             return tax.Name
@@ -54,7 +54,7 @@ func GetL1NameFromSlug (slug string, st SimplifiedTaxonomy) string {
 }
 
 // Lookup L2 Taxonomy name from slug
-func GetL2NameFromSlug (slug string, st SimplifiedTaxonomy) string {
+func (st *SimplifiedTaxonomy) GetL2NameFromSlug (slug string) string {
     for _, tax1 := range st.Taxonomies {
         for _, tax2 := range tax1.Children {
             if strings.Compare(strings.TrimSpace(slug), tax2.Slug) == 0 {

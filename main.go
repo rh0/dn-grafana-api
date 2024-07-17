@@ -13,7 +13,7 @@ import (
 	"text/template"
 
 	"github.com/charmbracelet/glamour"
-	"github.com/dtnp/go/grafana-api/simpletaxonomy"
+	"github.com/dtnp/go/grafana-api/pkg/simpletaxonomy"
 )
 
 const (
@@ -252,7 +252,7 @@ func mapDashboardTaxonomy(ad []dashboard, st simpletaxonomy.SimplifiedTaxonomy) 
 		if !ok {
 			// Nope? Then make one.
 			newTax := taxonomy{
-				Name:  simpletaxonomy.GetL1NameFromSlug(level1, st),
+				Name:  st.GetL1NameFromSlug(level1),
 				TaxL2: make(map[string]taxonomyL2),
 			}
 			mTopTax[level1] = newTax
@@ -269,7 +269,7 @@ func mapDashboardTaxonomy(ad []dashboard, st simpletaxonomy.SimplifiedTaxonomy) 
 		} else {
             // An L2 for this slug does not yet exist, create on
 			newL2Tax := taxonomyL2{
-				Name:       simpletaxonomy.GetL2NameFromSlug(level2, st),
+				Name:       st.GetL2NameFromSlug(level2),
 				Dashboards: make([]dashboard, 0),
 			}
 			mTopTax[level1].TaxL2[level2] = newL2Tax
