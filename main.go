@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -13,11 +14,14 @@ import (
 	"text/template"
 
 	"github.com/charmbracelet/glamour"
+	"github.com/dtnp/go/grafana-api/pkg/dashboard"
 	"github.com/dtnp/go/grafana-api/pkg/simpletaxonomy"
+	_ "github.com/mattn/go-sqlite3"
 )
 
 const (
 	grafanaUrl = "https://pantheon.grafana.net/api"
+    dashboardDB = "dashboards-sqlite3.db"
 )
 
 var foldersToIgnore = [...]string{
@@ -35,7 +39,7 @@ var tagsToIgnore = [...]string{
 	"broken",
 }
 
-type dashboard struct {
+type dashboardRaw struct {
 	ID    int    `json:"id"`
 	UID   string `json:"uid"`
 	Title string `json:"title"`
@@ -64,7 +68,7 @@ type taxonomy struct {
 
 type taxonomyL2 struct {
 	Name       string
-	Dashboards []dashboard
+	Dashboards []dashboardRaw
 }
 
 func main() {
@@ -74,6 +78,7 @@ func main() {
 		log.Error(err.Error())
 		os.Exit(1)
 	}
+
 }
 
 func run(log *slog.Logger) error {
@@ -95,9 +100,34 @@ func run(log *slog.Logger) error {
 	}
 
 	// ------------------------------------------------------------------------
+    // Setup the Database
+	// ------------------------------------------------------------------------
+
+    // Remove the old db file to start with a clean one.
+    os.Remove(dashboardDB)
+
+    // Open the sqlite3 database.
+    db, err := sql.Open("sqlite3", dashboardDB)
+    if err != nil {
+        log.Error(err.Error())
+        os.Exit(1)
+    }
+    
+    // Initialize the database schema.
+    log.Debug("Initializing Database")
+    dashboardStorage := dashboard.NewSQLiteRepository(db)
+    err = dashboardStorage.TabelInit()
+    if err != nil {
+        log.Error(err.Error())
+        os.Exit(1)
+    }
+    log.Debug("Initializing Successful")
+
+	// ------------------------------------------------------------------------
 	// Simplified Taxonomy Reference
 	// ------------------------------------------------------------------------
 	simpleTax, err := simpletaxonomy.ParseFile("./simplified-taxonomy.json")
+    err = StoreTaxonomy(dashboardStorage, simpleTax)
 	if err != nil {
 		return err
 	}
@@ -121,14 +151,12 @@ func run(log *slog.Logger) error {
 	// ------------------------------------------------------------------------
 	switch argsWithoutProg[0] {
 	case "user":
-		/*
 			log.Debug("performing GET 'user' request")
 			body, err := getUser()
 			if err != nil {
 				return fmt.Errorf("getUser: %v", err)
 			}
 			fmt.Println(body)
-		*/
 		break
 
 	case "search":
@@ -144,8 +172,12 @@ func run(log *slog.Logger) error {
 		}
 
 		pd, _ := parseDashboards(allDashboards)
-		taxMap := mapDashboardTaxonomy(pd, simpleTax)
-		printDashTaxMapCli(taxMap)
+        err = StoreDashboards(dashboardStorage, pd)
+        if err !=nil {
+            return fmt.Errorf("Search: %w", err)
+        }
+		//taxMap := mapDashboardTaxonomy(pd, simpleTax)
+		//printDashTaxMapCli(taxMap)
 		break
 
 	default:
@@ -178,8 +210,8 @@ func getUser() (string, error) {
 	return string(body), nil
 }
 
-func parseDashboards(ad []dashboard) ([]dashboard, error) {
-	var filteredDashboards []dashboard
+func parseDashboards(ad []dashboardRaw) ([]dashboardRaw, error) {
+	var filteredDashboards []dashboardRaw
 	for _, d := range ad {
 		singleDashboard, _ := getDashboard(d.UID)
 		desc := getDescription(singleDashboard)
@@ -221,8 +253,8 @@ func _tagIgnoreCheck(tags []string) bool {
 	return false
 }
 
-func mapDashboardTaxonomy(ad []dashboard, st simpletaxonomy.SimplifiedTaxonomy) map[string]taxonomy {
-	//var mTax = make(map[string][]dashboard)
+func mapDashboardTaxonomy(ad []dashboardRaw, st simpletaxonomy.SimplifiedTaxonomy) map[string]taxonomy {
+	//var mTax = make(map[string][]dashboardRaw)
 	var mTopTax = make(map[string]taxonomy)
 
 	for i, d := range ad {
@@ -270,7 +302,7 @@ func mapDashboardTaxonomy(ad []dashboard, st simpletaxonomy.SimplifiedTaxonomy) 
             // An L2 for this slug does not yet exist, create on
 			newL2Tax := taxonomyL2{
 				Name:       st.GetL2NameFromSlug(level2),
-				Dashboards: make([]dashboard, 0),
+				Dashboards: make([]dashboardRaw, 0),
 			}
 			mTopTax[level1].TaxL2[level2] = newL2Tax
 		}
@@ -279,7 +311,7 @@ func mapDashboardTaxonomy(ad []dashboard, st simpletaxonomy.SimplifiedTaxonomy) 
 	return mTopTax
 }
 
-func parseTags(d dashboard) map[string]string {
+func parseTags(d dashboardRaw) map[string]string {
 	var tags = make(map[string]string)
 
 	// Loop through the tags and pull out l1 and l2
@@ -390,8 +422,8 @@ func getDescription(body string) string {
 	json.Unmarshal([]byte(body), &res)
 
 	// mUahhaha - this is fantastically gross looking
-	dashboard := res["dashboard"]
-	desc := dashboard.(map[string]interface{})["description"]
+	dash:= res["dashboard"]
+	desc := dash.(map[string]interface{})["description"]
 	if desc == nil {
 		return ""
 	}
@@ -399,7 +431,7 @@ func getDescription(body string) string {
 	return desc.(string)
 }
 
-func getAllDashboards(queryParam string) ([]dashboard, error) {
+func getAllDashboards(queryParam string) ([]dashboardRaw, error) {
 
 	// "type=dash-db" excludes dash-folder
 	endpoint := fmt.Sprintf("/search?query=%s&type=dash-db", queryParam)
@@ -419,7 +451,7 @@ func getAllDashboards(queryParam string) ([]dashboard, error) {
 		return nil, fmt.Errorf("read body: %v", err)
 	}
 
-	var allDashboards []dashboard
+	var allDashboards []dashboardRaw
 	json.Unmarshal(body, &allDashboards)
 
 	return allDashboards, nil

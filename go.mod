@@ -2,7 +2,10 @@ module github.com/dtnp/go/grafana-api
 
 go 1.22
 
-require github.com/charmbracelet/glamour v0.7.0
+require (
+	github.com/charmbracelet/glamour v0.7.0
+	github.com/mattn/go-sqlite3 v1.14.22
+)
 
 require (
 	github.com/alecthomas/chroma/v2 v2.8.0 // indirect
